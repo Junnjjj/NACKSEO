@@ -1,11 +1,15 @@
 import {
   BaseEntity,
   Column,
+  CreateDateColumn,
   Entity,
   Index,
+  ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { IsDate, IsNotEmpty, IsString } from 'class-validator';
+import { MemoWriterEntity } from './memoWriter.entity';
+import { JoinColumn } from 'typeorm/browser';
 
 @Index('geoHash')
 @Entity({
@@ -22,23 +26,30 @@ export class MemoEntity extends BaseEntity {
 
   @IsDate()
   @IsNotEmpty()
-  @Column({ type: 'timestamp' })
+  @CreateDateColumn()
   create_at: Date;
 
-  @IsString()
-  @Column({ length: 16 })
-  create_user_ip: string;
-
   @IsNotEmpty()
-  @Column()
+  @Column({ type: 'double precision' })
   lat: number;
 
   @IsNotEmpty()
-  @Column()
+  @Column({ type: 'double precision' })
   lng: number;
+
+  @IsNotEmpty()
+  @Column()
+  divX: number;
+
+  @IsNotEmpty()
+  @Column()
+  divY: number;
 
   @IsNotEmpty()
   @IsString()
   @Column({ length: 12 })
-  geohash: string;
+  geoHash: string;
+
+  @ManyToOne(() => MemoWriterEntity, (memo_writer) => memo_writer.memoEntities)
+  memoWriter: MemoWriterEntity;
 }

@@ -1,16 +1,14 @@
 import {
   ConnectedSocket,
   MessageBody,
-  OnGatewayConnection,
-  OnGatewayDisconnect,
-  OnGatewayInit,
   SubscribeMessage,
   WebSocketGateway,
 } from '@nestjs/websockets';
 import { encode } from 'ngeohash';
 import { Socket } from 'socket.io';
-import { Logger } from '@nestjs/common';
-import { MemoWriterRepository } from './memoWriter.repository';
+import { HttpException, Logger } from '@nestjs/common';
+import { MemoWriterRepository } from '../memoWriter.repository';
+import { CacheService } from '../../cache/service/cache.service';
 
 interface IMemoInput {
   content: string;
@@ -21,7 +19,7 @@ interface IMemoInput {
 
 @WebSocketGateway({
   cors: {
-    origin: ['http://localhost:3000'],
+    origin: [process.env.CORS_ORIGIN],
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -30,7 +28,10 @@ interface IMemoInput {
 export class MemoGateway {
   private logger = new Logger('memo');
 
-  constructor(private readonly memoWriterRepository: MemoWriterRepository) {
+  constructor(
+    private readonly memoWriterRepository: MemoWriterRepository,
+    private readonly cacheService: CacheService,
+  ) {
     this.logger.log('constructor');
   }
 
@@ -38,7 +39,20 @@ export class MemoGateway {
     this.logger.log('init');
   }
 
-  handleConnection(@ConnectedSocket() socket: Socket) {
+  async handleConnection(@ConnectedSocket() socket: Socket) {
+    try {
+      const cacheDate = await this.cacheService.get('user_count');
+      if (cacheDate) {
+        await this.cacheService.set('user_count', Number(cacheDate) + 1);
+      } else {
+        await this.cacheService.set('user_count', 1);
+      }
+      const userCount = await this.cacheService.get('user_count');
+
+      socket.broadcast.emit('user_count', userCount);
+    } catch (error) {
+      new HttpException(error, 400);
+    }
     this.logger.log(`connected : ${socket.id} ${socket.nsp.name}`);
   }
 
@@ -46,7 +60,14 @@ export class MemoGateway {
     @ConnectedSocket() socket: Socket,
     @MessageBody() data,
   ) {
-    console.log('end data :', data);
+    const cacheDate = await this.cacheService.get('user_count');
+    if (cacheDate) {
+      await this.cacheService.set('user_count', Number(cacheDate) - 1);
+    } else {
+      await this.cacheService.set('user_count', 0);
+    }
+    const userCount = await this.cacheService.get('user_count');
+    socket.broadcast.emit('user_count', userCount);
     this.logger.log(`disconnected : ${socket.id} ${socket.nsp.name}`);
   }
 
@@ -96,7 +117,17 @@ export class MemoGateway {
       this.logger.log(
         `error occur at create new_user : ${socket.id}, ${error}`,
       );
-      throw error;
+      new HttpException(error, 400);
+    }
+  }
+
+  @SubscribeMessage('user_count')
+  async handleResponseUserCount() {
+    try {
+      const userCount = await this.cacheService.get('user_count');
+      return userCount;
+    } catch (error) {
+      new HttpException(error, 400);
     }
   }
 
@@ -114,7 +145,7 @@ export class MemoGateway {
       return { success: true };
     } catch (error) {
       this.logger.log(`error occur at memo_input : ${socket.id}, ${error}`);
-      throw error;
+      new HttpException(error, 400);
     }
   }
 
